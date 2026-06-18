@@ -2,11 +2,23 @@ import os
 import json
 import time
 import requests
-import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
+)
 
-# ================= TOKENS =================
+# ======================
+# TOKENS
+# ======================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
@@ -15,285 +27,210 @@ MUSIC_MODEL = "facebook/musicgen-small"
 
 DB_FILE = "database.json"
 
-
-# ================= DB =================
+# ======================
+# DB
+# ======================
 def load_db():
-    try:
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {"users": {}}
-
+    if not os.path.exists(DB_FILE):
+        return {}
+    with open(DB_FILE, "r") as f:
+        return json.load(f)
 
 def save_db(db):
     with open(DB_FILE, "w") as f:
         json.dump(db, f, indent=2)
 
-
 db = load_db()
 
-
-# ================= UI =================
-def agree_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ قبول قوانین", callback_data="accept")],
-        [InlineKeyboardButton("❌ رد", callback_data="reject")]
-    ])
-
-
-def menu_kb():
+# ======================
+# UI
+# ======================
+def main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🖼 ساخت عکس", callback_data="img")],
-        [InlineKeyboardButton("🎵 ساخت موزیک", callback_data="music")]
+        [InlineKeyboardButton("🎵 ساخت موزیک", callback_data="music")],
+        [InlineKeyboardButton("⚙️ زبان", callback_data="lang")]
     ])
 
-
-def quality_kb():
+def languages():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Fast", callback_data="q_fast")],
-        [InlineKeyboardButton("🔥 HD", callback_data="q_hd")],
-        [InlineKeyboardButton("💎 Ultra HD", callback_data="q_ultra")]
+        [InlineKeyboardButton("🇮🇷 فارسی", callback_data="fa")],
+        [InlineKeyboardButton("🇬🇧 English", callback_data="en")]
     ])
 
-
-def music_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎵 Short", callback_data="m_short")],
-        [InlineKeyboardButton("🎶 Normal", callback_data="m_normal")],
-        [InlineKeyboardButton("🎧 Long", callback_data="m_long")]
-    ])
-
-
-def download_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📥 دانلود فایل", callback_data="download")]
-    ])
-
-
-# ================= LOADING =================
-async def loading(msg, start_time):
-    while True:
-        elapsed = round(time.time() - start_time, 1)
-        try:
-            await msg.edit_text(f"⏳ در حال ساخت...\n⏱ {elapsed} ثانیه")
-        except:
-            pass
-        await asyncio.sleep(1)
-
-
-# ================= IMAGE =================
-def generate_image(prompt, quality):
-    start = time.time()
-
-    quality_map = {
-        "q_fast": "low quality",
-        "q_hd": "high quality, 4k, ultra detailed",
-        "q_ultra": "ultra realistic, 8k, cinematic lighting"
-    }
-
-    final_prompt = f"{prompt}, {quality_map.get(quality, 'high quality')}"
-
-    url = f"https://api-inference.huggingface.co/models/{IMAGE_MODEL}"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-
-    try:
-        r = requests.post(
-            url,
-            headers=headers,
-            json={"inputs": final_prompt, "options": {"wait_for_model": True}},
-            timeout=200
-        )
-
-        print("IMAGE STATUS:", r.status_code)
-
-        duration = round(time.time() - start, 2)
-
-        if r.status_code == 200:
-            file = "image.jpg"
-            with open(file, "wb") as f:
-                f.write(r.content)
-            return file, duration
-        else:
-            print("ERROR:", r.text)
-
-    except Exception as e:
-        print("IMAGE ERROR:", e)
-
-    return None, 0
-
-
-# ================= MUSIC =================
-def generate_music(prompt, mode):
-    start = time.time()
-
-    duration_map = {
-        "m_short": 4,
-        "m_normal": 8,
-        "m_long": 12
-    }
-
-    url = f"https://api-inference.huggingface.co/models/{MUSIC_MODEL}"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-
-    try:
-        r = requests.post(
-            url,
-            headers=headers,
-            json={
-                "inputs": prompt,
-                "parameters": {"duration": duration_map.get(mode, 8)}
-            },
-            timeout=200
-        )
-
-        print("MUSIC STATUS:", r.status_code)
-
-        duration = round(time.time() - start, 2)
-
-        if r.status_code == 200:
-            file = "music.mp3"
-            with open(file, "wb") as f:
-                f.write(r.content)
-            return file, duration
-        else:
-            print("ERROR:", r.text)
-
-    except Exception as e:
-        print("MUSIC ERROR:", e)
-
-    return None, 0
-
-
-# ================= START =================
+# ======================
+# START
+# ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
 
-    if user_id not in db["users"]:
-        db["users"][user_id] = {"accepted": False}
-        save_db(db)
+    db[user_id] = db.get(user_id, {
+        "lang": "fa",
+        "accepted": False
+    })
+    save_db(db)
 
-    text = (
-        "📜 قوانین ربات\n\n"
-        "👨‍💼 سازنده: امیر علی فروزان اصل\n\n"
-        "⚠️ استفاده از ربات مسئولیت کاربر است\n"
-        "⚠️ با عرض ادب لطفا از ربات برای فروش یا کار ها غیر قانونی استفاده نشود با تسکر امیر علی فروزان اصل\n\n"
-        "آیا قوانین را قبول می‌کنی؟"
+    text = "📜 قوانین را قبول دارید؟\n\nسازنده: امیر علی فروزان اصل"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ قبول دارم", callback_data="accept")]
+    ])
+
+    await update.message.reply_text(text, reply_markup=keyboard)
+
+# ======================
+# CALLBACK
+# ======================
+async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(query.from_user.id)
+
+    if query.data == "accept":
+        db[user_id]["accepted"] = True
+        save_db(db)
+        await query.edit_message_text("✔ قوانین تایید شد")
+        await query.message.reply_text("منو:", reply_markup=main_menu())
+
+    elif query.data == "img":
+        await query.message.reply_text("✏ متن عکس را بفرست")
+
+    elif query.data == "music":
+        await query.message.reply_text("🎵 متن موزیک را بفرست (تا 5 دقیقه)")
+
+    elif query.data == "lang":
+        await query.message.reply_text("زبان را انتخاب کن:", reply_markup=languages())
+
+    elif query.data in ["fa", "en"]:
+        db[user_id]["lang"] = query.data
+        save_db(db)
+        await query.message.reply_text("✔ زبان تنظیم شد")
+
+# ======================
+# IMAGE AI (FIXED)
+# ======================
+def generate_image(prompt):
+    url = f"https://api-inference.huggingface.co/models/{IMAGE_MODEL}"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+
+    r = requests.post(
+        url,
+        headers=headers,
+        json={"inputs": prompt},
+        timeout=300
     )
 
-    await update.message.reply_text(text, reply_markup=agree_kb())
+    if "application/json" in r.headers.get("content-type", ""):
+        return None, r.text
 
+    if r.status_code != 200:
+        return None, f"ERROR {r.status_code}"
 
-# ================= BUTTONS =================
-async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+    file = "image.jpg"
+    with open(file, "wb") as f:
+        f.write(r.content)
 
-    user_id = str(q.from_user.id)
+    return file, None
 
-    if q.data == "accept":
-        db["users"][user_id]["accepted"] = True
-        save_db(db)
-        await q.message.edit_text("✅ منو اصلی", reply_markup=menu_kb())
+# ======================
+# MUSIC AI (FIXED)
+# ======================
+def generate_music(prompt):
+    url = f"https://api-inference.huggingface.co/models/{MUSIC_MODEL}"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-    elif q.data == "reject":
-        await q.message.edit_text("⛔ دسترسی بسته شد")
+    r = requests.post(
+        url,
+        headers=headers,
+        json={"inputs": prompt},
+        timeout=300
+    )
 
-    elif q.data == "img":
-        await q.message.reply_text("🖼 کیفیت عکس را انتخاب کن:", reply_markup=quality_kb())
+    if "application/json" in r.headers.get("content-type", ""):
+        return None, r.text
 
-    elif q.data == "music":
-        await q.message.reply_text("🎵 مدت موزیک را انتخاب کن:", reply_markup=music_kb())
+    if r.status_code != 200:
+        return None, f"ERROR {r.status_code}"
 
-    elif q.data == "download":
-        await q.message.reply_document(open("file.bin", "rb"))
+    file = "music.mp3"
+    with open(file, "wb") as f:
+        f.write(r.content)
 
+    return file, None
 
-# ================= STATE =================
-user_state = {}
-
-
-# ================= TEXT =================
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ======================
+# MESSAGE HANDLER
+# ======================
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     text = update.message.text
 
-    if user_id not in db["users"]:
+    if user_id not in db or not db[user_id].get("accepted"):
+        await update.message.reply_text("❌ اول قوانین را قبول کن")
         return
 
-    if not db["users"][user_id]["accepted"]:
-        await update.message.reply_text("❗ اول قوانین را قبول کن")
+    # IMAGE
+    if context.user_data.get("mode") == "img":
+        await update.message.reply_text("⏳ در حال ساخت عکس... 0%")
+
+        file, err = generate_image(text)
+
+        if err:
+            await update.message.reply_text(f"❌ خطا:\n{err}")
+            return
+
+        await update.message.reply_photo(
+            photo=open(file, "rb"),
+            caption="✔ ساخته شد"
+        )
+
         return
 
-    # ================= IMAGE =================
-    if text.startswith("🖼"):
-        prompt = text.replace("🖼", "").strip()
+    # MUSIC
+    if context.user_data.get("mode") == "music":
+        await update.message.reply_text("⏳ در حال ساخت موزیک... تا 5 دقیقه")
 
-        quality = user_state.get(user_id, {}).get("quality", "q_hd")
+        file, err = generate_music(text)
 
-        msg = await update.message.reply_text("⏳ شروع ساخت...")
+        if err:
+            await update.message.reply_text(f"❌ خطا:\n{err}")
+            return
 
-        task = asyncio.create_task(loading(msg, time.time()))
+        await update.message.reply_audio(
+            audio=open(file, "rb"),
+            caption="✔ موزیک ساخته شد"
+        )
 
-        file, sec = generate_image(prompt, quality)
+        return
 
-        if file:
-            task.cancel()
+# ======================
+# MAIN MENU CONTROL
+# ======================
+async def menu_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
 
-            await msg.delete()
+    if text == "🖼 ساخت عکس":
+        context.user_data["mode"] = "img"
+        await update.message.reply_text("✏ متن عکس را بفرست")
 
-            await update.message.reply_photo(
-                photo=open(file, "rb"),
-                caption=f"🖼 آماده شد\n⏱ زمان: {sec} ثانیه\n👨‍💼 امیر علی فروزان اصل",
-                reply_markup=download_kb()
-            )
-        else:
-            task.cancel()
-            await msg.edit_text("❌ خطا در ساخت عکس (API یا Token مشکل دارد)")
+    elif text == "🎵 ساخت موزیک":
+        context.user_data["mode"] = "music"
+        await update.message.reply_text("✏ متن موزیک را بفرست")
 
-    # ================= MUSIC =================
-    elif text.startswith("🎵"):
-        prompt = text.replace("🎵", "").strip()
+# ======================
+# MAIN
+# ======================
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
 
-        mode = user_state.get(user_id, {}).get("music", "m_normal")
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_control))
 
-        msg = await update.message.reply_text("⏳ در حال ساخت موزیک...")
+    print("Bot is running...")
+    app.run_polling()
 
-        file, sec = generate_music(prompt, mode)
-
-        if file:
-            await msg.delete()
-
-            await update.message.reply_audio(
-                audio=open(file, "rb"),
-                caption=f"🎵 آماده شد\n⏱ زمان: {sec} ثانیه\n👨‍💼 امیر علی فروزان اصل"
-            )
-        else:
-            await msg.edit_text("❌ خطا در ساخت موزیک")
-
-
-# ================= CALLBACK QUALITY =================
-async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-
-    user_id = str(q.from_user.id)
-
-    if q.data in ["q_fast", "q_hd", "q_ultra"]:
-        user_state.setdefault(user_id, {})["quality"] = q.data
-        await q.message.reply_text("✅ کیفیت انتخاب شد\n🖼 حالا متن عکس را بفرست")
-
-    elif q.data in ["m_short", "m_normal", "m_long"]:
-        user_state.setdefault(user_id, {})["music"] = q.data
-        await q.message.reply_text("✅ حالت انتخاب شد\n🎵 حالا متن موزیک را بفرست")
-
-
-# ================= RUN =================
-app = Application.builder().token(BOT_TOKEN).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(buttons))
-app.add_handler(CallbackQueryHandler(callback))
-app.add_handler(MessageHandler(filters.TEXT, text_handler))
-
-print("Bot running...")
-app.run_polling()
+if __name__ == "__main__":
+    main()
