@@ -1,9 +1,10 @@
 import os
-import json
 import asyncio
 import replicate
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+import requests
+
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 # ================= TOKENS =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -11,31 +12,13 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 
 client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-DB_FILE = "db.json"
-
-# ================= DB =================
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return {}
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
-
-def save_db(db):
-    with open(DB_FILE, "w") as f:
-        json.dump(db, f)
-
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("🖼 ساخت عکس", callback_data="img")]
-    ]
-
     await update.message.reply_text(
-        "👋 سلام!\nمتن عکس را بفرست",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        "👋 سلام!\n✏ یک متن بفرست تا برات عکس بسازم"
     )
 
-# ================= IMAGE =================
+# ================= IMAGE FUNCTION =================
 def make_image(prompt):
     try:
         output = client.run(
@@ -46,35 +29,29 @@ def make_image(prompt):
                 "output_format": "webp"
             }
         )
-
         return output, None
 
     except Exception as e:
         return None, str(e)
 
-# ================= TEXT =================
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
+# ================= MESSAGE HANDLER =================
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
 
-    msg = await update.message.reply_text("⏳ در حال ساخت...")
+    msg = await update.message.reply_text("⏳ در حال ساخت تصویر...")
 
     loop = asyncio.get_event_loop()
-    result, err = await loop.run_in_executor(None, make_image, user_text)
+    result, error = await loop.run_in_executor(None, make_image, text)
 
-    if err:
-        await msg.edit_text(f"❌ خطا:\n{err}")
+    if error:
+        await msg.edit_text(f"❌ خطا:\n{error}")
         return
-
-    keyboard = [
-        [InlineKeyboardButton("⬇️ دانلود", url=result)]
-    ]
 
     await msg.delete()
 
     await update.message.reply_photo(
         photo=result,
-        caption="✅ ساخته شد",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        caption="✅ تصویر آماده شد"
     )
 
 # ================= MAIN =================
@@ -82,9 +59,9 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-    print("Bot running...")
+    print("Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
