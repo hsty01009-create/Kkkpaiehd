@@ -1,7 +1,8 @@
 import os
 import json
-import requests
+import time
 import asyncio
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -16,7 +17,8 @@ from telegram.ext import (
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+# ================= MODELS =================
+IMAGE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 MUSIC_MODEL = "facebook/musicgen-small"
 
 DB_FILE = "database.json"
@@ -39,18 +41,7 @@ def save_db(db):
 db = load_db()
 
 
-# ================= STYLE =================
-def build_prompt(style, text):
-    styles = {
-        "real": "realistic, ultra detailed, 4k, sharp focus",
-        "anime": "anime style, high quality, detailed",
-        "cinematic": "cinematic lighting, dramatic film look",
-        "3d": "3d render, octane render, ultra detailed"
-    }
-    return f"{text}, {styles.get(style, 'realistic')}"
-
-
-# ================= BUTTONS =================
+# ================= UI =================
 def agree_kb():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ قبول قوانین", callback_data="accept")],
@@ -65,69 +56,75 @@ def menu_kb():
     ])
 
 
-def download_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📥 دانلود عکس", callback_data="download_img")]
-    ])
+# ================= LOADING =================
+async def loading(msg, start_time):
+    dots = ["⏳", "⏳⏳", "⏳⏳⏳"]
 
-
-# ================= PROGRESS =================
-async def fake_progress(msg):
-    p = 0
-    while p < 90:
-        p += 10
+    for i in range(6):
+        elapsed = round(time.time() - start_time, 1)
         try:
-            await msg.edit_text(f"⏳ در حال ساخت... {p}%")
+            await msg.edit_text(f"{dots[i % 3]} در حال ساخت...\n⏱ {elapsed} ثانیه")
         except:
             pass
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(1)
 
 
-# ================= MULTI IMAGE =================
-def generate_images(prompt, style="real", count=4):
-    final_prompt = build_prompt(style, prompt)
+# ================= IMAGE =================
+def generate_image(prompt):
+    start = time.time()
 
-    url = f"https://api-inference.huggingface.co/models/{MODEL}"
+    url = f"https://api-inference.huggingface.co/models/{IMAGE_MODEL}"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-    images = []
-
-    for i in range(count):
+    try:
         r = requests.post(
             url,
             headers=headers,
-            json={"inputs": final_prompt, "options": {"wait_for_model": True}},
+            json={"inputs": prompt, "options": {"wait_for_model": True}},
             timeout=120
         )
 
+        duration = round(time.time() - start, 2)
+
         if r.status_code == 200:
-            file = f"img_{i}.jpg"
+            file = "image.jpg"
             with open(file, "wb") as f:
                 f.write(r.content)
-            images.append(file)
+            return file, duration
 
-    return images
+    except:
+        pass
+
+    return None, 0
 
 
 # ================= MUSIC =================
 def generate_music(prompt):
+    start = time.time()
+
     url = f"https://api-inference.huggingface.co/models/{MUSIC_MODEL}"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-    r = requests.post(
-        url,
-        headers=headers,
-        json={"inputs": prompt, "parameters": {"duration": 8}},
-        timeout=120
-    )
+    try:
+        r = requests.post(
+            url,
+            headers=headers,
+            json={"inputs": prompt, "parameters": {"duration": 8}},
+            timeout=180
+        )
 
-    if r.status_code == 200:
-        file = "music.mp3"
-        with open(file, "wb") as f:
-            f.write(r.content)
-        return file
+        duration = round(time.time() - start, 2)
 
-    return None
+        if r.status_code == 200:
+            file = "music.mp3"
+            with open(file, "wb") as f:
+                f.write(r.content)
+            return file, duration
+
+    except:
+        pass
+
+    return None, 0
 
 
 # ================= START =================
@@ -135,18 +132,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
 
     if user_id not in db["users"]:
-        db["users"][user_id] = {
-            "accepted": False,
-            "style": "real"
-        }
+        db["users"][user_id] = {"accepted": False}
         save_db(db)
 
-    await update.message.reply_text(
-        "📜 قوانین ربات\n"
+    text = (
+        "📜 قوانین ربات\n\n"
         "👨‍💼 سازنده: امیر علی فروزان اصل\n\n"
-        "آیا قوانین را قبول می‌کنی؟",
-        reply_markup=agree_kb()
+        "⚠️ استفاده از ربات مسئولیت کاربر است\n"
+        "⚠️ محتوای تولیدی ممکن است خطا داشته باشد\n\n"
+        "آیا قوانین را قبول می‌کنید؟"
     )
+
+    await update.message.reply_text(text, reply_markup=agree_kb())
 
 
 # ================= BUTTONS =================
@@ -168,10 +165,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("🖼 متن برای ساخت عکس بفرست")
 
     elif q.data == "music":
-        await q.message.reply_text("🎵 متن برای موزیک بفرست")
-
-    elif q.data == "download_img":
-        await q.message.reply_document(open("img_0.jpg", "rb"))
+        await q.message.reply_text("🎵 متن برای ساخت موزیک بفرست")
 
 
 # ================= TEXT =================
@@ -186,50 +180,50 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❗ اول قوانین را قبول کن")
         return
 
-    user = db["users"][user_id]
-
-    # ===== IMAGE =====
+    # ================= IMAGE =================
     if text.startswith("🖼"):
         prompt = text.replace("🖼", "").strip()
 
-        msg = await update.message.reply_text("⏳ شروع ساخت... 0%")
+        start_time = time.time()
+        msg = await update.message.reply_text("⏳ شروع ساخت...")
 
-        await fake_progress(msg)
+        task = asyncio.create_task(loading(msg, start_time))
 
-        images = generate_images(prompt, user.get("style", "real"), count=4)
+        file, duration = generate_image(prompt)
 
-        if images:
+        if file:
             await msg.delete()
-
-            for img in images:
-                await update.message.reply_photo(
-                    photo=open(img, "rb"),
-                    caption="🖼 HD Image"
-                )
+            await update.message.reply_photo(
+                photo=open(file, "rb"),
+                caption=f"🖼 عکس آماده شد\n⏱ زمان: {duration} ثانیه\n👨‍💼 امیر علی فروزان اصل"
+            )
         else:
-            await msg.edit_text("❌ خطا در ساخت تصویر")
+            await msg.edit_text("❌ خطا در ساخت عکس")
 
-    # ===== MUSIC =====
+    # ================= MUSIC =================
     elif text.startswith("🎵"):
         prompt = text.replace("🎵", "").strip()
 
         msg = await update.message.reply_text("⏳ در حال ساخت موزیک...")
 
-        file = generate_music(prompt)
+        file, duration = generate_music(prompt)
 
         if file:
             await msg.delete()
-            await update.message.reply_audio(open(file, "rb"))
+            await update.message.reply_audio(
+                audio=open(file, "rb"),
+                caption=f"🎵 موزیک آماده شد\n⏱ زمان: {duration} ثانیه\n👨‍💼 امیر علی فروزان اصل"
+            )
         else:
-            await msg.edit_text("❌ خطا")
+            await msg.edit_text("❌ خطا در ساخت موزیک")
 
 
-# ================= APP =================
+# ================= RUN =================
 app = Application.builder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(buttons))
 app.add_handler(MessageHandler(filters.TEXT, text_handler))
 
-print("Bot running...")
+print("Bot is running...")
 app.run_polling()
