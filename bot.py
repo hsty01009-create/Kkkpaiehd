@@ -1,7 +1,6 @@
 import os
-import base64
 import uuid
-import requests
+import replicate
 from collections import defaultdict
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,91 +17,64 @@ from telegram.ext import (
 # CONFIG
 # =========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 
-AI_TXT2IMG = "http://127.0.0.1:7860/sdapi/v1/txt2img"
-AI_IMG2IMG = "http://127.0.0.1:7860/sdapi/v1/img2img"
+os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
 
 # =========================
 # DATA
 # =========================
 user_lang = {}
-user_image = {}
-user_mode = {}
 user_gallery = defaultdict(list)
 
 # =========================
 # MENU
 # =========================
-def menu(lang):
+def lang_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇮🇷 فارسی", callback_data="fa")],
+        [InlineKeyboardButton("🇬🇧 English", callback_data="en")]
+    ])
+
+def main_menu(lang):
     if lang == "fa":
         return InlineKeyboardMarkup([
             [InlineKeyboardButton("🎨 ساخت عکس", callback_data="img")],
-            [InlineKeyboardButton("✏️ ادیت (اختیاری)", callback_data="edit")],
             [InlineKeyboardButton("🗂 گالری", callback_data="gallery")]
         ])
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎨 Create Image", callback_data="img")],
-        [InlineKeyboardButton("✏️ Optional Edit", callback_data="edit")],
         [InlineKeyboardButton("🗂 Gallery", callback_data="gallery")]
     ])
 
-def download_btn(path, lang):
+def download_btn(file_url, lang):
     text = "⬇️ دانلود" if lang == "fa" else "⬇️ Download"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(text, callback_data=f"dl:{path}")]
+        [InlineKeyboardButton(text, callback_data=f"dl:{file_url}")]
     ])
 
 # =========================
-# AI GENERATE
+# AI IMAGE (REPLICATE)
 # =========================
-def generate(prompt):
-    res = requests.post(AI_TXT2IMG, json={
-        "prompt": prompt,
-        "steps": 25,
-        "width": 512,
-        "height": 512
-    })
-
-    img = res.json()["images"][0]
-    name = f"{uuid.uuid4()}.png"
-
-    with open(name, "wb") as f:
-        f.write(base64.b64decode(img))
-
-    return name
-
-# =========================
-# AI EDIT
-# =========================
-def edit(image_path, prompt):
-    with open(image_path, "rb") as f:
-        img64 = base64.b64encode(f.read()).decode()
-
-    res = requests.post(AI_IMG2IMG, json={
-        "init_images": [img64],
-        "prompt": prompt,
-        "steps": 25,
-        "denoising_strength": 0.7
-    })
-
-    img = res.json()["images"][0]
-    name = f"edit_{uuid.uuid4()}.png"
-
-    with open(name, "wb") as f:
-        f.write(base64.b64decode(img))
-
-    return name
+def generate_image(prompt):
+    output = replicate.run(
+        "black-forest-labs/flux-2-pro",
+        input={
+            "prompt": prompt,
+            "aspect_ratio": "1:1",
+            "output_format": "png"
+        }
+    )
+    return output[0]
 
 # =========================
 # START
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇮🇷 فارسی", callback_data="fa")],
-        [InlineKeyboardButton("🇬🇧 English", callback_data="en")]
-    ])
-
-    await update.message.reply_text("🌐 Choose language", reply_markup=keyboard)
+    await update.message.reply_text(
+        "🌐 Choose Language",
+        reply_markup=lang_menu()
+    )
 
 # =========================
 # CALLBACK
@@ -116,86 +88,55 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # LANGUAGE
     if q.data == "fa":
         user_lang[uid] = "fa"
-        await q.message.edit_text("✅ فارسی فعال شد", reply_markup=menu("fa"))
+        await q.message.edit_text("✅ فارسی فعال شد", reply_markup=main_menu("fa"))
 
     elif q.data == "en":
         user_lang[uid] = "en"
-        await q.message.edit_text("✅ English enabled", reply_markup=menu("en"))
+        await q.message.edit_text("✅ English enabled", reply_markup=main_menu("en"))
 
-    # IMAGE MODE
+    # CREATE IMAGE MODE
     elif q.data == "img":
-        user_mode[uid] = "img"
-        await q.message.reply_text("✍ متن عکس را بفرست")
-
-    # OPTIONAL EDIT MODE
-    elif q.data == "edit":
-        user_mode[uid] = "edit"
-        await q.message.reply_text("📸 اگر عکس داری بفرست، اگر نداری فقط متن بده")
+        await q.message.reply_text("✍ متن عکس را ارسال کن / Send prompt")
 
     # GALLERY
     elif q.data == "gallery":
         imgs = user_gallery.get(uid, [])
-
         if not imgs:
-            await q.message.reply_text("🗂 خالی است")
+            await q.message.reply_text("🗂 خالی است / Empty")
             return
 
-        for i in imgs[-5:]:
-            await q.message.reply_photo(open(i, "rb"))
+        for img in imgs[-5:]:
+            await q.message.reply_photo(img)
 
     # DOWNLOAD
     elif q.data.startswith("dl:"):
-        path = q.data.split("dl:")[1]
-        await q.message.reply_document(open(path, "rb"))
+        file_url = q.data.split("dl:")[1]
+        await q.message.reply_document(file_url)
 
 # =========================
-# PHOTO HANDLER
+# TEXT HANDLER (CREATE IMAGE)
 # =========================
-async def photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
-
-    file = await update.message.photo[-1].get_file()
-    path = f"{uid}.jpg"
-
-    await file.download_to_drive(path)
-
-    user_image[uid] = path
-
-    lang = user_lang.get(uid, "en")
-    text = "📸 عکس ذخیره شد (حالا می‌تونی ادیت کنی)" if lang == "fa" else "📸 Image saved (you can edit now)"
-
-    await update.message.reply_text(text)
-
-# =========================
-# TEXT HANDLER (SMART LOGIC)
-# =========================
-async def text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.message.from_user.id
-    txt = update.message.text
+    prompt = update.message.text
 
     lang = user_lang.get(uid, "en")
 
-    msg = await update.message.reply_text("⏳ processing...")
+    msg = await update.message.reply_text("⏳ generating...")
 
     try:
-        # اگر عکس دارد → ادیت
-        if user_mode.get(uid) == "edit" and uid in user_image:
-            file = edit(user_image[uid], txt)
+        image_url = generate_image(prompt)
 
-        # اگر عکس ندارد → ساخت عکس
-        else:
-            file = generate(txt)
-
-        user_gallery[uid].append(file)
+        user_gallery[uid].append(image_url)
 
         await msg.delete()
 
         caption = "🎨 ساخته شد" if lang == "fa" else "🎨 Generated"
 
         await update.message.reply_photo(
-            photo=open(file, "rb"),
+            photo=image_url,
             caption=caption,
-            reply_markup=download_btn(file, lang)
+            reply_markup=download_btn(image_url, lang)
         )
 
     except Exception as e:
@@ -209,10 +150,9 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback))
-    app.add_handler(MessageHandler(filters.PHOTO, photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print("🚀 SMART BOT RUNNING")
+    print("🚀 BOT RUNNING ON RAILWAY")
     app.run_polling()
 
 if __name__ == "__main__":
