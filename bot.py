@@ -70,30 +70,28 @@ def download_kb():
     ])
 
 
-# ================= PROGRESS =================
+# ================= LOADING =================
 async def loading(msg, start_time):
-    dots = ["⏳", "⏳⏳", "⏳⏳⏳"]
-
-    for i in range(6):
+    while True:
         elapsed = round(time.time() - start_time, 1)
         try:
-            await msg.edit_text(f"{dots[i % 3]} در حال ساخت...\n⏱ {elapsed} ثانیه")
+            await msg.edit_text(f"⏳ در حال ساخت...\n⏱ {elapsed} ثانیه")
         except:
             pass
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(1)
 
 
 # ================= IMAGE =================
 def generate_image(prompt, quality):
     start = time.time()
 
-    quality_prompt = {
-        "q_fast": "low quality, fast render",
+    quality_map = {
+        "q_fast": "low quality",
         "q_hd": "high quality, 4k, ultra detailed",
-        "q_ultra": "ultra realistic, 8k, cinematic lighting, masterpiece"
+        "q_ultra": "ultra realistic, 8k, cinematic lighting"
     }
 
-    final_prompt = f"{prompt}, {quality_prompt.get(quality, 'high quality')}"
+    final_prompt = f"{prompt}, {quality_map.get(quality, 'high quality')}"
 
     url = f"https://api-inference.huggingface.co/models/{IMAGE_MODEL}"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
@@ -103,8 +101,10 @@ def generate_image(prompt, quality):
             url,
             headers=headers,
             json={"inputs": final_prompt, "options": {"wait_for_model": True}},
-            timeout=180
+            timeout=200
         )
+
+        print("IMAGE STATUS:", r.status_code)
 
         duration = round(time.time() - start, 2)
 
@@ -113,9 +113,11 @@ def generate_image(prompt, quality):
             with open(file, "wb") as f:
                 f.write(r.content)
             return file, duration
+        else:
+            print("ERROR:", r.text)
 
-    except:
-        pass
+    except Exception as e:
+        print("IMAGE ERROR:", e)
 
     return None, 0
 
@@ -141,8 +143,10 @@ def generate_music(prompt, mode):
                 "inputs": prompt,
                 "parameters": {"duration": duration_map.get(mode, 8)}
             },
-            timeout=180
+            timeout=200
         )
+
+        print("MUSIC STATUS:", r.status_code)
 
         duration = round(time.time() - start, 2)
 
@@ -151,9 +155,11 @@ def generate_music(prompt, mode):
             with open(file, "wb") as f:
                 f.write(r.content)
             return file, duration
+        else:
+            print("ERROR:", r.text)
 
-    except:
-        pass
+    except Exception as e:
+        print("MUSIC ERROR:", e)
 
     return None, 0
 
@@ -166,12 +172,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db["users"][user_id] = {"accepted": False}
         save_db(db)
 
-    await update.message.reply_text(
-        "📜 قوانین ربات\n"
+    text = (
+        "📜 قوانین ربات\n\n"
         "👨‍💼 سازنده: امیر علی فروزان اصل\n\n"
-        "آیا قوانین را قبول می‌کنی؟",
-        reply_markup=agree_kb()
+        "⚠️ استفاده از ربات مسئولیت کاربر است\n"
+        "⚠️ با عرض ادب لطفا از ربات برای فروش یا کار ها غیر قانونی استفاده نشود با تسکر امیر علی فروزان اصل\n\n"
+        "آیا قوانین را قبول می‌کنی؟"
     )
+
+    await update.message.reply_text(text, reply_markup=agree_kb())
 
 
 # ================= BUTTONS =================
@@ -196,10 +205,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("🎵 مدت موزیک را انتخاب کن:", reply_markup=music_kb())
 
     elif q.data == "download":
-        await q.message.reply_document(open("output.jpg", "rb"))
+        await q.message.reply_document(open("file.bin", "rb"))
 
 
-# ================= MEMORY =================
+# ================= STATE =================
 user_state = {}
 
 
@@ -223,22 +232,23 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg = await update.message.reply_text("⏳ شروع ساخت...")
 
-        await loading(msg, time.time())
+        task = asyncio.create_task(loading(msg, time.time()))
 
         file, sec = generate_image(prompt, quality)
 
         if file:
-            os.rename(file, "output.jpg")
+            task.cancel()
 
             await msg.delete()
 
             await update.message.reply_photo(
-                photo=open("output.jpg", "rb"),
+                photo=open(file, "rb"),
                 caption=f"🖼 آماده شد\n⏱ زمان: {sec} ثانیه\n👨‍💼 امیر علی فروزان اصل",
                 reply_markup=download_kb()
             )
         else:
-            await msg.edit_text("❌ خطا در ساخت عکس")
+            task.cancel()
+            await msg.edit_text("❌ خطا در ساخت عکس (API یا Token مشکل دارد)")
 
     # ================= MUSIC =================
     elif text.startswith("🎵"):
@@ -258,10 +268,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=f"🎵 آماده شد\n⏱ زمان: {sec} ثانیه\n👨‍💼 امیر علی فروزان اصل"
             )
         else:
-            await msg.edit_text("❌ خطا")
+            await msg.edit_text("❌ خطا در ساخت موزیک")
 
 
-# ================= CALLBACK =================
+# ================= CALLBACK QUALITY =================
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
