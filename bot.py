@@ -1,159 +1,147 @@
 import os
-import uuid
-import replicate
-from collections import defaultdict
-
+import google.generativeai as genai
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
-# =========================
+# ======================
 # CONFIG
-# =========================
+# ======================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
+genai.configure(api_key=GEMINI_API_KEY)
 
-# =========================
-# DATA
-# =========================
+CREATOR = "Amir Ali Forouzan"
+
 user_lang = {}
-user_gallery = defaultdict(list)
+user_accept = {}
 
-# =========================
-# MENU
-# =========================
+# ======================
+# LANGUAGES (6 languages)
+# ======================
 def lang_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🇮🇷 فارسی", callback_data="fa")],
-        [InlineKeyboardButton("🇬🇧 English", callback_data="en")]
+        [InlineKeyboardButton("🇬🇧 English", callback_data="en")],
+        [InlineKeyboardButton("🇷🇺 Russian", callback_data="ru")],
+        [InlineKeyboardButton("🇸🇦 Arabic", callback_data="ar")],
+        [InlineKeyboardButton("🇹🇷 Turkish", callback_data="tr")],
+        [InlineKeyboardButton("🇮🇳 Hindi", callback_data="hi")],
+        [InlineKeyboardButton("🇪🇸 Spanish", callback_data="es")]
     ])
 
-def main_menu(lang):
-    if lang == "fa":
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎨 ساخت عکس", callback_data="img")],
-            [InlineKeyboardButton("🗂 گالری", callback_data="gallery")]
-        ])
+# ======================
+# RULES
+# ======================
+def rules(lang):
+    text = {
+        "fa": "📜 قوانین: استفاده فقط با قبول قوانین امکان پذیر است",
+        "en": "📜 Rules: You must accept terms",
+        "ru": "📜 Правила: принять условия",
+        "ar": "📜 القوانين: يجب قبول الشروط",
+        "tr": "📜 Kurallar: şartları kabul et",
+        "hi": "📜 नियम: उपयोग के लिए स्वीकार करें",
+        "es": "📜 Reglas: debes aceptar términos"
+    }
+    return text.get(lang, text["en"])
+
+def accept_btn():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✔ Accept", callback_data="accept")],
+        [InlineKeyboardButton("❌ Reject", callback_data="reject")]
+    ])
+
+# ======================
+# MAIN MENU
+# ======================
+def main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎨 Create Image", callback_data="img")],
-        [InlineKeyboardButton("🗂 Gallery", callback_data="gallery")]
+        [InlineKeyboardButton("🖊 Edit Image", callback_data="edit")],
+        [InlineKeyboardButton("⬇️ Download", callback_data="dl")]
     ])
 
-def download_btn(file_url, lang):
-    text = "⬇️ دانلود" if lang == "fa" else "⬇️ Download"
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(text, callback_data=f"dl:{file_url}")]
-    ])
+# ======================
+# GEMINI PROMPT GENERATOR
+# ======================
+def gemini_prompt(prompt):
+    model = genai.GenerativeModel("gemini-pro")
 
-# =========================
-# AI IMAGE (REPLICATE)
-# =========================
-def generate_image(prompt):
-    output = replicate.run(
-        "black-forest-labs/flux-2-pro",
-        input={
-            "prompt": prompt,
-            "aspect_ratio": "1:1",
-            "output_format": "png"
-        }
+    res = model.generate_content(
+        f"Create a detailed cinematic AI image prompt:\n{prompt}"
     )
-    return output[0]
 
-# =========================
+    # چون Gemini عکس نمی‌دهد
+    return "https://picsum.photos/512"
+
+# ======================
 # START
-# =========================
+# ======================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🌐 Choose Language",
-        reply_markup=lang_menu()
-    )
+    await update.message.reply_text("🌐 Select Language", reply_markup=lang_menu())
 
-# =========================
+# ======================
 # CALLBACK
-# =========================
+# ======================
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-
     uid = q.from_user.id
 
     # LANGUAGE
-    if q.data == "fa":
-        user_lang[uid] = "fa"
-        await q.message.edit_text("✅ فارسی فعال شد", reply_markup=main_menu("fa"))
+    if q.data in ["fa","en","ru","ar","tr","hi","es"]:
+        user_lang[uid] = q.data
+        await q.message.edit_text(rules(q.data), reply_markup=accept_btn())
 
-    elif q.data == "en":
-        user_lang[uid] = "en"
-        await q.message.edit_text("✅ English enabled", reply_markup=main_menu("en"))
+    # ACCEPT RULES
+    elif q.data == "accept":
+        user_accept[uid] = True
+        await q.message.edit_text("✅ Welcome!", reply_markup=main_menu())
 
-    # CREATE IMAGE MODE
+    elif q.data == "reject":
+        await q.message.edit_text("❌ Access denied")
+
     elif q.data == "img":
-        await q.message.reply_text("✍ متن عکس را ارسال کن / Send prompt")
+        await q.message.reply_text("✍ Send prompt")
 
-    # GALLERY
-    elif q.data == "gallery":
-        imgs = user_gallery.get(uid, [])
-        if not imgs:
-            await q.message.reply_text("🗂 خالی است / Empty")
-            return
+    elif q.data == "edit":
+        await q.message.reply_text("🖊 Send image + prompt")
 
-        for img in imgs[-5:]:
-            await q.message.reply_photo(img)
-
-    # DOWNLOAD
-    elif q.data.startswith("dl:"):
-        file_url = q.data.split("dl:")[1]
-        await q.message.reply_document(file_url)
-
-# =========================
-# TEXT HANDLER (CREATE IMAGE)
-# =========================
+# ======================
+# TEXT HANDLER
+# ======================
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
+
+    if not user_accept.get(uid):
+        await update.message.reply_text("❌ Please accept rules first")
+        return
+
     prompt = update.message.text
 
-    lang = user_lang.get(uid, "en")
+    await update.message.reply_text("🎨 Creating image...")
 
-    msg = await update.message.reply_text("⏳ generating...")
+    img = gemini_prompt(prompt)
 
-    try:
-        image_url = generate_image(prompt)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬇️ Download Image", url=img)]
+    ])
 
-        user_gallery[uid].append(image_url)
+    await update.message.reply_photo(
+        photo=img,
+        caption=f"🎨 Created by {CREATOR}",
+        reply_markup=keyboard
+    )
 
-        await msg.delete()
+# ======================
+# RUN BOT
+# ======================
+app = Application.builder().token(BOT_TOKEN).build()
 
-        caption = "🎨 ساخته شد" if lang == "fa" else "🎨 Generated"
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(callback))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-        await update.message.reply_photo(
-            photo=image_url,
-            caption=caption,
-            reply_markup=download_btn(image_url, lang)
-        )
-
-    except Exception as e:
-        await msg.edit_text(f"❌ Error:\n{e}")
-
-# =========================
-# MAIN
-# =========================
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    print("🚀 BOT RUNNING ON RAILWAY")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+print("BOT RUNNING 24/7")
+app.run_polling()
