@@ -1,35 +1,19 @@
 import os
 import json
-import time
-import requests
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters
-)
+import asyncio
+import replicate
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
-# ======================
-# TOKENS
-# ======================
+# ================= TOKENS =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-HF_TOKEN = os.getenv("HF_TOKEN")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 
-IMAGE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
-MUSIC_MODEL = "facebook/musicgen-small"
+client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-DB_FILE = "database.json"
+DB_FILE = "db.json"
 
-# ======================
-# DB
-# ======================
+# ================= DB =================
 def load_db():
     if not os.path.exists(DB_FILE):
         return {}
@@ -38,198 +22,69 @@ def load_db():
 
 def save_db(db):
     with open(DB_FILE, "w") as f:
-        json.dump(db, f, indent=2)
+        json.dump(db, f)
 
-db = load_db()
-
-# ======================
-# UI
-# ======================
-def main_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🖼 ساخت عکس", callback_data="img")],
-        [InlineKeyboardButton("🎵 ساخت موزیک", callback_data="music")],
-        [InlineKeyboardButton("⚙️ زبان", callback_data="lang")]
-    ])
-
-def languages():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇮🇷 فارسی", callback_data="fa")],
-        [InlineKeyboardButton("🇬🇧 English", callback_data="en")]
-    ])
-
-# ======================
-# START
-# ======================
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+    keyboard = [
+        [InlineKeyboardButton("🖼 ساخت عکس", callback_data="img")]
+    ]
 
-    db[user_id] = db.get(user_id, {
-        "lang": "fa",
-        "accepted": False
-    })
-    save_db(db)
-
-    text = "📜 قوانین را قبول دارید؟\n\nسازنده: امیر علی فروزان اصل"
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ قبول دارم", callback_data="accept")]
-    ])
-
-    await update.message.reply_text(text, reply_markup=keyboard)
-
-# ======================
-# CALLBACK
-# ======================
-async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = str(query.from_user.id)
-
-    if query.data == "accept":
-        db[user_id]["accepted"] = True
-        save_db(db)
-        await query.edit_message_text("✔ قوانین تایید شد")
-        await query.message.reply_text("منو:", reply_markup=main_menu())
-
-    elif query.data == "img":
-        await query.message.reply_text("✏ متن عکس را بفرست")
-
-    elif query.data == "music":
-        await query.message.reply_text("🎵 متن موزیک را بفرست (تا 5 دقیقه)")
-
-    elif query.data == "lang":
-        await query.message.reply_text("زبان را انتخاب کن:", reply_markup=languages())
-
-    elif query.data in ["fa", "en"]:
-        db[user_id]["lang"] = query.data
-        save_db(db)
-        await query.message.reply_text("✔ زبان تنظیم شد")
-
-# ======================
-# IMAGE AI (FIXED)
-# ======================
-def generate_image(prompt):
-    url = f"https://api-inference.huggingface.co/models/{IMAGE_MODEL}"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-
-    r = requests.post(
-        url,
-        headers=headers,
-        json={"inputs": prompt},
-        timeout=300
+    await update.message.reply_text(
+        "👋 سلام!\nمتن عکس را بفرست",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    if "application/json" in r.headers.get("content-type", ""):
-        return None, r.text
+# ================= IMAGE =================
+def make_image(prompt):
+    try:
+        output = client.run(
+            "black-forest-labs/flux-schnell",
+            input={
+                "prompt": prompt,
+                "aspect_ratio": "1:1",
+                "output_format": "webp"
+            }
+        )
 
-    if r.status_code != 200:
-        return None, f"ERROR {r.status_code}"
+        return output, None
 
-    file = "image.jpg"
-    with open(file, "wb") as f:
-        f.write(r.content)
+    except Exception as e:
+        return None, str(e)
 
-    return file, None
+# ================= TEXT =================
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
 
-# ======================
-# MUSIC AI (FIXED)
-# ======================
-def generate_music(prompt):
-    url = f"https://api-inference.huggingface.co/models/{MUSIC_MODEL}"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    msg = await update.message.reply_text("⏳ در حال ساخت...")
 
-    r = requests.post(
-        url,
-        headers=headers,
-        json={"inputs": prompt},
-        timeout=300
+    loop = asyncio.get_event_loop()
+    result, err = await loop.run_in_executor(None, make_image, user_text)
+
+    if err:
+        await msg.edit_text(f"❌ خطا:\n{err}")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton("⬇️ دانلود", url=result)]
+    ]
+
+    await msg.delete()
+
+    await update.message.reply_photo(
+        photo=result,
+        caption="✅ ساخته شد",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    if "application/json" in r.headers.get("content-type", ""):
-        return None, r.text
-
-    if r.status_code != 200:
-        return None, f"ERROR {r.status_code}"
-
-    file = "music.mp3"
-    with open(file, "wb") as f:
-        f.write(r.content)
-
-    return file, None
-
-# ======================
-# MESSAGE HANDLER
-# ======================
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    text = update.message.text
-
-    if user_id not in db or not db[user_id].get("accepted"):
-        await update.message.reply_text("❌ اول قوانین را قبول کن")
-        return
-
-    # IMAGE
-    if context.user_data.get("mode") == "img":
-        await update.message.reply_text("⏳ در حال ساخت عکس... 0%")
-
-        file, err = generate_image(text)
-
-        if err:
-            await update.message.reply_text(f"❌ خطا:\n{err}")
-            return
-
-        await update.message.reply_photo(
-            photo=open(file, "rb"),
-            caption="✔ ساخته شد"
-        )
-
-        return
-
-    # MUSIC
-    if context.user_data.get("mode") == "music":
-        await update.message.reply_text("⏳ در حال ساخت موزیک... تا 5 دقیقه")
-
-        file, err = generate_music(text)
-
-        if err:
-            await update.message.reply_text(f"❌ خطا:\n{err}")
-            return
-
-        await update.message.reply_audio(
-            audio=open(file, "rb"),
-            caption="✔ موزیک ساخته شد"
-        )
-
-        return
-
-# ======================
-# MAIN MENU CONTROL
-# ======================
-async def menu_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-
-    if text == "🖼 ساخت عکس":
-        context.user_data["mode"] = "img"
-        await update.message.reply_text("✏ متن عکس را بفرست")
-
-    elif text == "🎵 ساخت موزیک":
-        context.user_data["mode"] = "music"
-        await update.message.reply_text("✏ متن موزیک را بفرست")
-
-# ======================
-# MAIN
-# ======================
+# ================= MAIN =================
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_control))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
-    print("Bot is running...")
+    print("Bot running...")
     app.run_polling()
 
 if __name__ == "__main__":
