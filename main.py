@@ -1,152 +1,521 @@
 import os
 import sqlite3
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = os.getenv("BOT_TOKEN")
-
-# ================= DB =================
-conn = sqlite3.connect("bot.db", check_same_thread=False)
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    lang TEXT DEFAULT 'fa',
-    coins INTEGER DEFAULT 100
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
 )
-""")
-conn.commit()
 
-# ================= LANG =================
-LANGS = {
-    "fa": "فارسی",
-    "en": "English",
-    "ar": "العربية",
-    "tr": "Türkçe",
-    "fr": "Français",
-    "es": "Español",
-    "ru": "Русский"
-}
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 
-RULES = """
-📜 Rules
+# فایل‌های پروژه
+from database import (
+    add_user,
+    get_user,
+    get_coins,
+    add_coins,
+    set_lang,
+    get_lang
+)
 
-1. Respect required
-2. No spam
-3. No abuse
-4. No insult
-5. User is responsible
-6. Data is stored
-7. Admin not responsible
-8. Rules may change
-9. Continue = accept rules
-"""
+from texts import (
+    LANGS,
+    welcome
+)
 
-# ================= HELPERS =================
-def get_user(user_id):
-    cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    return cursor.fetchone()
+from rules import RULES
 
-def create_user(user_id):
-    if not get_user(user_id):
-        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
-        conn.commit()
+from image_tools import (
+    generate_image_url
+)
 
-def set_lang(user_id, lang):
-    cursor.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
-    conn.commit()
+from sticker import (
+    create_sticker
+)
 
-def get_lang(user_id):
-    user = get_user(user_id)
-    return user[1]
+# ==========================
+# تنظیمات ربات
+# ==========================
 
-def get_coins(user_id):
-    user = get_user(user_id)
-    return user[2]
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# ================= UI =================
-def main_menu(lang):
+CREATOR = "امیر علی فروزان اصل"
+
+# وضعیت کاربران
+user_states = {}
+
+# حالت‌ها
+WAITING_IMAGE_PROMPT = "waiting_image_prompt"
+WAITING_STICKER_PHOTO = "waiting_sticker_photo"
+WAITING_EDIT_PHOTO = "waiting_edit_photo"
+
+# ==========================
+# بررسی توکن
+# ==========================
+
+if not BOT_TOKEN:
+    raise ValueError(
+        "BOT_TOKEN not found in Railway Variables"
+    )
+
+# ==========================
+# منوی اصلی
+# ==========================
+
+def main_menu(lang="fa"):
+
     if lang == "fa":
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🌍 زبان", callback_data="lang")],
-            [InlineKeyboardButton("💰 سکه", callback_data="coins")],
-            [InlineKeyboardButton("📜 قوانین", callback_data="rules")]
-        ])
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "🌍 زبان",
+                    callback_data="language"
+                ),
+                InlineKeyboardButton(
+                    "💰 سکه",
+                    callback_data="coins"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "👥 دعوت دوستان",
+                    callback_data="invite"
+                ),
+                InlineKeyboardButton(
+                    "📜 قوانین",
+                    callback_data="rules"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🖼 ساخت عکس",
+                    callback_data="image_ai"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🎭 ساخت استیکر",
+                    callback_data="sticker"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🎨 ادیت عکس",
+                    callback_data="edit_photo"
+                )
+            ]
+        ]
+
     else:
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🌍 Language", callback_data="lang")],
-            [InlineKeyboardButton("💰 Coins", callback_data="coins")],
-            [InlineKeyboardButton("📜 Rules", callback_data="rules")]
-        ])
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "🌍 Language",
+                    callback_data="language"
+                ),
+                InlineKeyboardButton(
+                    "💰 Coins",
+                    callback_data="coins"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "👥 Invite",
+                    callback_data="invite"
+                ),
+                InlineKeyboardButton(
+                    "📜 Rules",
+                    callback_data="rules"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🖼 AI Image",
+                    callback_data="image_ai"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🎭 Sticker",
+                    callback_data="sticker"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🎨 Edit Photo",
+                    callback_data="edit_photo"
+                )
+            ]
+        ]
 
-# ================= START =================
+    return InlineKeyboardMarkup(keyboard)
+    # ==========================
+# START
+# ==========================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    create_user(user_id)
 
-    lang = get_lang(user_id)
+    user = update.effective_user
 
-    text = "✨ خوش آمدی" if lang == "fa" else "✨ Welcome"
+    invited_by = None
 
-    await update.message.reply_text(text, reply_markup=main_menu(lang))
+    if context.args:
+        try:
+            invited_by = int(context.args[0])
+        except:
+            pass
 
-# ================= CALLBACK =================
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    add_user(user.id, invited_by)
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "✅ قبول قوانین",
+                callback_data="accept_rules"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "❌ رد قوانین",
+                callback_data="reject_rules"
+            )
+        ]
+    ])
+
+    await update.message.reply_text(
+        RULES,
+        reply_markup=keyboard
+    )
+
+
+# ==========================
+# CALLBACKS
+# ==========================
+
+async def buttons(update: Update,
+                  context: ContextTypes.DEFAULT_TYPE):
+
     query = update.callback_query
+
     await query.answer()
 
     user_id = query.from_user.id
-    create_user(user_id)
 
     data = query.data
 
-    # حذف دکمه‌ها
-    await query.edit_message_reply_markup(reply_markup=None)
+    # حذف دکمه‌ها بعد از کلیک
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=None
+        )
+    except:
+        pass
 
-    # ========= LANGUAGE =========
-    if data == "lang":
-        keyboard = [
-            [InlineKeyboardButton(v, callback_data=f"set_{k}")]
-            for k, v in LANGS.items()
-        ]
-        await query.message.reply_text("Select Language:", reply_markup=InlineKeyboardMarkup(keyboard))
+    # ======================
+    # قبول قوانین
+    # ======================
 
-    # ========= SET LANG =========
-    elif data.startswith("set_"):
-        lang = data.split("_")[1]
+    if data == "accept_rules":
+
+        keyboard = []
+
+        row = []
+
+        for code, name in LANGS.items():
+
+            row.append(
+                InlineKeyboardButton(
+                    name,
+                    callback_data=f"lang_{code}"
+                )
+            )
+
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+
+        if row:
+            keyboard.append(row)
+
+        await query.message.reply_text(
+            "🌍 زبان خود را انتخاب کنید",
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            )
+        )
+
+    # ======================
+    # رد قوانین
+    # ======================
+
+    elif data == "reject_rules":
+
+        await query.message.reply_text(
+            "❌ تا زمانی که قوانین را قبول نکنید امکان استفاده از ربات را ندارید."
+        )
+
+    # ======================
+    # انتخاب زبان
+    # ======================
+
+    elif data.startswith("lang_"):
+
+        lang = data.replace("lang_", "")
+
         set_lang(user_id, lang)
-        await query.message.reply_text(f"✅ Language set: {LANGS[lang]}")
 
-    # ========= COINS =========
-    elif data == "coins":
         coins = get_coins(user_id)
-        await query.message.reply_text(f"💰 Coins: {coins}")
 
-    # ========= RULES =========
+        await query.message.reply_text(
+            welcome(lang, coins),
+            reply_markup=main_menu(lang)
+        )
+
+    # ======================
+    # قوانین
+    # ======================
+
     elif data == "rules":
-        await query.message.reply_text(RULES)
 
-# ================= TEXT (AI IMAGE READY) =================
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+        await query.message.reply_text(
+            RULES
+        )
+
+    # ======================
+    # سکه
+    # ======================
+
+    elif data == "coins":
+
+        coins = get_coins(user_id)
+
+        await query.message.reply_text(
+            f"💰 Coins: {coins}"
+        )
+
+    # ======================
+    # دعوت دوستان
+    # ======================
+
+    elif data == "invite":
+
+        bot_username = (
+            await context.bot.get_me()
+        ).username
+
+        link = (
+            f"https://t.me/{bot_username}"
+            f"?start={user_id}"
+        )
+
+        await query.message.reply_text(
+            f"""
+👥 لینک دعوت شما:
+
+{link}
+
+🎁 پاداش:
++200 سکه برای هر دعوت موفق
+"""
+               )
+        # ==========================
+# ساخت عکس AI
+# ==========================
+
+    elif data == "image_ai":
+
+        user_states[user_id] = WAITING_IMAGE_PROMPT
+
+        await query.message.reply_text(
+            "🖼 متن عکس را ارسال کنید"
+        )
+
+    # ==========================
+    # استیکرساز
+    # ==========================
+
+    elif data == "sticker":
+
+        user_states[user_id] = WAITING_STICKER_PHOTO
+
+        await query.message.reply_text(
+            "🎭 عکس را ارسال کنید"
+        )
+
+    # ==========================
+    # ادیت عکس
+    # ==========================
+
+    elif data == "edit_photo":
+
+        user_states[user_id] = WAITING_EDIT_PHOTO
+
+        await query.message.reply_text(
+            "🎨 عکس را ارسال کنید"
+        )
+
+
+# ==========================
+# دریافت متن
+# ==========================
+
+async def text_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     user_id = update.effective_user.id
 
-    # لینک Pollinations AI
-    url = f"https://image.pollinations.ai/prompt/{text}"
+    state = user_states.get(user_id)
 
-    await update.message.reply_photo(photo=url)
+    # ساخت عکس
+    if state == WAITING_IMAGE_PROMPT:
 
-# ================= MAIN =================
+        prompt = update.message.text
+
+        url = generate_image_url(prompt)
+
+        await update.message.reply_photo(
+            photo=url,
+            caption="✅ تصویر ساخته شد"
+        )
+
+        user_states.pop(user_id, None)
+
+        return
+
+
+# ==========================
+# دریافت عکس
+# ==========================
+
+async def photo_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    user_id = update.effective_user.id
+
+    state = user_states.get(user_id)
+
+    photo = update.message.photo[-1]
+
+    file = await photo.get_file()
+
+    # ----------------------
+    # استیکرساز
+    # ----------------------
+
+    if state == WAITING_STICKER_PHOTO:
+
+        await file.download_to_drive(
+            "user_photo.jpg"
+        )
+
+        sticker_file = create_sticker(
+            "user_photo.jpg"
+        )
+
+        with open(sticker_file, "rb") as s:
+
+            await update.message.reply_sticker(
+                sticker=s
+            )
+
+        user_states.pop(user_id, None)
+
+        return
+
+    # ----------------------
+    # ادیت عکس ساده
+    # ----------------------
+
+    elif state == WAITING_EDIT_PHOTO:
+
+        await file.download_to_drive(
+            "edit_photo.jpg"
+        )
+
+        from PIL import Image, ImageFilter
+
+        img = Image.open(
+            "edit_photo.jpg"
+        )
+
+        img = img.filter(
+            ImageFilter.SHARPEN
+        )
+
+        img.save(
+            "edited_photo.jpg"
+        )
+
+        await update.message.reply_photo(
+            photo=open(
+                "edited_photo.jpg",
+                "rb"
+            ),
+            caption="✅ عکس ویرایش شد"
+        )
+
+        user_states.pop(user_id, None)
+
+        return
+
+
+# ==========================
+# MAIN
+# ==========================
+
 def main():
-    app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app = (
+        Application
+        .builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
 
-    print("Bot is running...")
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            buttons
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT &
+            ~filters.COMMAND,
+            text_handler
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO,
+            photo_handler
+        )
+    )
+
+    print("Bot Started")
+
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
