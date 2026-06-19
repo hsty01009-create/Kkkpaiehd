@@ -4,13 +4,13 @@ CREATOR = "امیر علی فروزان اصل"
 
 def edit_image(path):
     img = Image.open(path)
-    draw = ImageDraw.Draw(img)
+    d = ImageDraw.Draw(img)
 
-    draw.rectangle([(0,0),(800,100)], fill="black")
-    draw.text((20,30), "EDITED ✨", fill="white")
+    d.rectangle([(0,0),(800,100)], fill="black")
+    d.text((20,30), "EDITED ✨", fill="white")
 
-    draw.rectangle([(0,450),(800,500)], fill="black")
-    draw.text((20,460), CREATOR, fill="white")
+    d.rectangle([(0,450),(800,500)], fill="black")
+    d.text((20,460), CREATOR, fill="white")
 
     out = "edit.jpg"
     img.save(out)
