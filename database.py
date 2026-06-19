@@ -11,16 +11,15 @@ async def init_db():
             coins INTEGER DEFAULT 100,
             lang TEXT DEFAULT 'fa',
             accepted INTEGER DEFAULT 0,
-            ref_by INTEGER DEFAULT 0,
             last_daily TEXT DEFAULT ''
         )
         """)
         await db.commit()
 
 
-async def add_user(user_id, ref_by=0):
+async def add_user(user_id):
     async with aiosqlite.connect(DB) as db:
-        await db.execute("INSERT OR IGNORE INTO users(user_id, ref_by) VALUES(?,?)", (user_id, ref_by))
+        await db.execute("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (user_id,))
         await db.commit()
 
 
@@ -36,7 +35,7 @@ async def set_lang(user_id, lang):
         await db.commit()
 
 
-async def accept_rules(user_id):
+async def accept(user_id):
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE users SET accepted=1 WHERE user_id=?", (user_id,))
         await db.commit()
@@ -48,7 +47,7 @@ async def add_coins(user_id, amount):
         await db.commit()
 
 
-async def set_daily(user_id):
+async def daily(user_id):
     today = str(datetime.date.today())
     async with aiosqlite.connect(DB) as db:
         await db.execute("UPDATE users SET last_daily=? WHERE user_id=?", (today, user_id))
