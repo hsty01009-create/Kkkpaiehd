@@ -14,20 +14,23 @@ from texts import LANGS, welcome
 from rules import RULES
 from image_tools import generate_image_url
 from sticker import create_sticker
+from image_edit import enhance
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-user_state = {}
+state = {}
 
 IMG = "img"
 STK = "stk"
+EDIT = "edit"
 
 
 # ================= MENU =================
 def menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🖼 Image", callback_data="img")],
+        [InlineKeyboardButton("🖼 AI Image", callback_data="img")],
         [InlineKeyboardButton("🎭 Sticker", callback_data="stk")],
+        [InlineKeyboardButton("🎨 Edit Photo", callback_data="edit")],
         [InlineKeyboardButton("💰 Coins", callback_data="coins")],
         [InlineKeyboardButton("🌍 Language", callback_data="lang")]
     ])
@@ -36,20 +39,12 @@ def menu():
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-
-    invited_by = None
-    if context.args:
-        try:
-            invited_by = int(context.args[0])
-        except:
-            pass
-
-    add_user(user.id, invited_by)
+    add_user(user.id)
 
     await update.message.reply_text(
         RULES,
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ قبول قوانین", callback_data="ok")]
+            [InlineKeyboardButton("✅ Accept", callback_data="ok")]
         ])
     )
 
@@ -65,29 +60,27 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.edit_message_reply_markup(reply_markup=None)
 
     if data == "ok":
-        await q.message.reply_text("👋 منو:", reply_markup=menu())
+        await q.message.reply_text("🚀 Menu", reply_markup=menu())
 
     elif data == "img":
-        user_state[uid] = IMG
-        await q.message.reply_text("✍ متن عکس را بفرست")
+        state[uid] = IMG
+        await q.message.reply_text("✍ Send text")
 
     elif data == "stk":
-        user_state[uid] = STK
-        await q.message.reply_text("📷 عکس بفرست")
+        state[uid] = STK
+        await q.message.reply_text("📷 Send photo")
+
+    elif data == "edit":
+        state[uid] = EDIT
+        await q.message.reply_text("🎨 Send photo")
 
     elif data == "coins":
         coins = get_coins(uid)
         await q.message.reply_text(f"💰 {coins}")
 
     elif data == "lang":
-        keyboard = [
-            [InlineKeyboardButton(name, callback_data=f"l_{code}")]
-            for code, name in LANGS.items()
-        ]
-        await q.message.reply_text(
-            "🌍 انتخاب زبان",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        kb = [[InlineKeyboardButton(v, callback_data=f"l_{k}")] for k, v in LANGS.items()]
+        await q.message.reply_text("🌍 Select language", reply_markup=InlineKeyboardMarkup(kb))
 
     elif data.startswith("l_"):
         lang = data[2:]
@@ -100,10 +93,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
 
-    if user_state.get(uid) == IMG:
+    if state.get(uid) == IMG:
         url = generate_image_url(update.message.text)
         await update.message.reply_photo(url)
-        user_state.pop(uid, None)
+        state.pop(uid, None)
 
 
 # ================= PHOTO =================
@@ -111,13 +104,19 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
 
     file = await update.message.photo[-1].get_file()
-    path = "temp.jpg"
+    path = "file.jpg"
     await file.download_to_drive(path)
 
-    if user_state.get(uid) == STK:
+    if state.get(uid) == STK:
         out = create_sticker(path)
-        await update.message.reply_sticker(out)
-        user_state.pop(uid, None)
+        with open(out, "rb") as f:
+            await update.message.reply_sticker(f)
+        state.pop(uid, None)
+
+    elif state.get(uid) == EDIT:
+        out = enhance(path)
+        await update.message.reply_photo(open(out, "rb"))
+        state.pop(uid, None)
 
 
 # ================= MAIN =================
@@ -129,7 +128,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
 
-    print("Bot running...")
+    print("Bot Running...")
     app.run_polling()
 
 
