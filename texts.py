@@ -1,21 +1,13 @@
 LANGS = {
     "fa": "🇮🇷 فارسی",
     "en": "🇺🇸 English",
-    "ar": "🇸🇦 عربي",
+    "ar": "🇸🇦 العربية",
     "tr": "🇹🇷 Türkçe",
-    "ru": "🇷🇺 Русский",
-    "de": "🇩🇪 Deutsch",
-    "fr": "🇫🇷 Français"
+    "fr": "🇫🇷 Français",
+    "es": "🇪🇸 Español",
+    "ru": "🇷🇺 Русский"
 }
 
 
 def welcome(lang, coins):
-    return {
-        "fa": f"👋 خوش آمدی!\n💰 سکه: {coins}",
-        "en": f"Welcome!\nCoins: {coins}",
-        "ar": f"مرحبا!\nCoins: {coins}",
-        "tr": f"Hoş geldin!\nCoins: {coins}",
-        "ru": f"Добро пожаловать!\nCoins: {coins}",
-        "de": f"Willkommen!\nCoins: {coins}",
-        "fr": f"Bienvenue!\nCoins: {coins}",
-    }.get(lang, "Welcome!")
+    return f"👋 Welcome!\n💰 Coins: {coins}"
