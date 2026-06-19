@@ -4,10 +4,10 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.filters import Command
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, CREATOR
 from database import *
 from keyboards import *
-from languages import TEXT
+from messages import RULES, welcome
 from image import edit_image, make_sticker
 
 bot = Bot(BOT_TOKEN)
@@ -28,14 +28,11 @@ async def start(m: Message):
 
     await add_user(m.from_user.id, inviter)
 
-    # 👥 پاداش دعوت واقعی
-    if inviter != 0:
-        await reward_invite(inviter)
-
     user = await get_user(m.from_user.id)
 
+    # اگر قوانین قبول نشده
     if user[3] == 0:
-        await m.answer("📜 قوانین را قبول کن", reply_markup=rules())
+        await m.answer(RULES, reply_markup=rules())
     else:
         await m.answer("🌍 انتخاب زبان", reply_markup=lang())
 
@@ -44,16 +41,23 @@ async def start(m: Message):
 @dp.callback_query(F.data == "accept")
 async def accept_rules(c: CallbackQuery):
     await accept(c.from_user.id)
-    await c.message.answer("🌍 انتخاب زبان", reply_markup=lang())
     await c.message.delete()
+    await c.message.answer("🌍 زبان را انتخاب کن", reply_markup=lang())
 
 
 # زبان
 @dp.callback_query(F.data.in_(["fa","en","ru","es","hi","tr","fr"]))
-async def set_lang(c: CallbackQuery):
+async def set_language(c: CallbackQuery):
     await set_lang(c.from_user.id, c.data)
+
+    user = await get_user(c.from_user.id)
+
     await c.message.delete()
-    await c.message.answer(TEXT[c.data], reply_markup=menu())
+
+    await c.message.answer(
+        welcome(c.data, user[1], CREATOR),
+        reply_markup=menu()
+    )
 
 
 # سکه
@@ -63,11 +67,11 @@ async def coins(c: CallbackQuery):
     await c.message.answer(f"💰 {user[1]}")
 
 
-# دعوت لینک
+# دعوت
 @dp.callback_query(F.data == "invite")
 async def invite(c: CallbackQuery):
     link = f"https://t.me/{(await bot.get_me()).username}?start={c.from_user.id}"
-    await c.message.answer(f"👥 لینک دعوت شما:\n{link}\n\n💰 +200 سکه برای هر دعوت!")
+    await c.message.answer(f"👥 لینک دعوت:\n{link}\n💰 +200 سکه برای هر دعوت")
 
 
 # ادیت عکس
@@ -80,7 +84,7 @@ async def photo(m: Message):
     await m.answer_photo(FSInputFile(out))
 
 
-# استیکر
+# استیکر واقعی
 @dp.message(F.photo)
 async def sticker(m: Message):
     file = await m.bot.get_file(m.photo[-1].file_id)
