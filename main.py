@@ -1,108 +1,81 @@
 import asyncio
-
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.filters import Command
 
 from config import BOT_TOKEN, CREATOR
+from rules import RULES
 from database import *
-from keyboards import *
-from messages import RULES, welcome
+from languages import LANG
 from image import edit_image, make_sticker
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-user_state = {}
+state = {}
 
+def welcome(lang, coins, creator):
+    return f"""
+✨ خوش آمدی
 
-# START
+🌍 زبان: {lang}
+💰 سکه: {coins}
+
+━━━━━━━━━━━━
+👨‍💻 سازنده: {creator}
+"""
+
+# START + REF
 @dp.message(Command("start"))
 async def start(m: Message):
-    await add_user(m.from_user.id)
+    ref = m.text.split()[1] if len(m.text.split()) > 1 else 0
+    await add_user(m.from_user.id, ref)
 
-    user = await get_user(m.from_user.id)
+    await m.answer(RULES)
 
-    if user[3] == 0:
-        await m.answer(RULES, reply_markup=rules())
-    else:
-        await m.answer("🌍 انتخاب زبان", reply_markup=lang())
-
-
-# ACCEPT RULES
-@dp.callback_query(F.data == "accept")
-async def accept_rules(c: CallbackQuery):
-    await accept(c.from_user.id)
-    await c.message.delete()
-    await c.message.answer("🌍 زبان را انتخاب کن", reply_markup=lang())
-
-
-# LANGUAGE
-@dp.callback_query(F.data.in_(["fa","en","ru","es","hi","tr","fr"]))
-async def set_language(c: CallbackQuery):
+# LANGUAGE SELECT
+@dp.callback_query(F.data.in_(LANG.keys()))
+async def lang(c: CallbackQuery):
     await set_lang(c.from_user.id, c.data)
+    await first_bonus(c.from_user.id)
 
     user = await get_user(c.from_user.id)
 
-    await c.message.delete()
+    if user[3] != 0:
+        await reward_invite(user[3])
 
     await c.message.answer(
-        welcome(c.data, user[1], CREATOR),
-        reply_markup=menu()
+        welcome(LANG[c.data], user[1], CREATOR)
     )
-
-
-# COINS
-@dp.callback_query(F.data == "coins")
-async def coins(c: CallbackQuery):
-    user = await get_user(c.from_user.id)
-    await c.message.answer(f"💰 {user[1]}")
-
-
-# INVITE
-@dp.callback_query(F.data == "invite")
-async def invite(c: CallbackQuery):
-    link = f"https://t.me/{(await bot.get_me()).username}?start={c.from_user.id}"
-    await c.message.answer(f"👥 لینک دعوت:\n{link}\n💰 +200 سکه")
-
 
 # EDIT MODE
 @dp.callback_query(F.data == "edit")
-async def edit_mode(c: CallbackQuery):
-    user_state[c.from_user.id] = "edit"
-    await c.message.answer("📸 عکس بفرست برای ادیت")
-
+async def edit(c: CallbackQuery):
+    state[c.from_user.id] = "edit"
+    await c.message.answer("📸 عکس بفرست (ادیت 10 سکه)")
 
 # STICKER MODE
 @dp.callback_query(F.data == "sticker")
-async def sticker_mode(c: CallbackQuery):
-    user_state[c.from_user.id] = "sticker"
-    await c.message.answer("📸 عکس بفرست برای استیکر")
+async def sticker(c: CallbackQuery):
+    state[c.from_user.id] = "sticker"
+    await c.message.answer("📸 عکس بفرست")
 
-
-# SINGLE PHOTO HANDLER (FIXED)
+# PHOTO HANDLER
 @dp.message(F.photo)
-async def photo_handler(m: Message):
-    state = user_state.get(m.from_user.id)
+async def photo(m: Message):
+    file = await bot.get_file(m.photo[-1].file_id)
+    await bot.download_file(file.file_path, "in.jpg")
 
-    file = await m.bot.get_file(m.photo[-1].file_id)
-    await m.bot.download_file(file.file_path, "in.jpg")
-
-    if state == "edit":
+    if state.get(m.from_user.id) == "edit":
         out = edit_image("in.jpg")
         await m.answer_photo(FSInputFile(out))
 
-    elif state == "sticker":
+    elif state.get(m.from_user.id) == "sticker":
         out = make_sticker("in.jpg")
-        await m.answer_sticker(FSInputFile(out))
+        await m.answer_document(FSInputFile(out))
 
-    else:
-        await m.answer("❌ اول از منو انتخاب کن")
+    state[m.from_user.id] = None
 
-    user_state[m.from_user.id] = None
-
-
-# RUN
 async def main():
     await init()
     await dp.start_polling(bot)
