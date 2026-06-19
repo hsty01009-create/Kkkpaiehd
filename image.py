@@ -1,6 +1,6 @@
 from PIL import Image, ImageDraw
 
-CREATOR = "فرعی22:امیر علی فروزان اصل"
+CREATOR = "امیر علی فروزان اصل"
 
 def make_image(text):
     img = Image.new("RGB", (800, 500), (25, 25, 25))
