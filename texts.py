@@ -1,19 +1,19 @@
 LANGS = {
     "fa": "فارسی",
     "en": "English",
-    "fr": "Français",
-    "es": "Español",
     "ar": "العربية",
     "tr": "Türkçe",
+    "fr": "Français",
+    "es": "Español",
     "ru": "Русский"
 }
 
 def welcome(lang, coins):
     return f"""
-✨ خوش آمدی
+✨ Welcome
 
-🌍 زبان: {lang}
-💰 سکه: {coins}
+🌍 Language: {lang}
+💰 Coins: {coins}
 
 ━━━━━━━━━━━━
 🤖 Pro Bot
