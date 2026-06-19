@@ -1,2 +1,5 @@
-python-telegram-bot==21.6
+python-telegram-bot==22.5
 google-generativeai
+aiosqlite
+python-dotenv
+Pillow
