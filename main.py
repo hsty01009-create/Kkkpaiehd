@@ -6,8 +6,9 @@ from aiogram.filters import Command
 
 from config import BOT_TOKEN
 from database import *
-from keyboards import menu, rules, lang
-from image import make_image, edit_image
+from keyboards import *
+from languages import TEXT
+from image import edit_image, make_sticker
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
@@ -15,85 +16,83 @@ dp = Dispatcher()
 
 # START + دعوت
 @dp.message(Command("start"))
-async def start(message: Message):
-    args = message.text.split()
+async def start(m: Message):
+    args = m.text.split()
 
-    invite_by = 0
+    inviter = 0
     if len(args) > 1:
         try:
-            invite_by = int(args[1])
+            inviter = int(args[1])
         except:
-            pass
+            inviter = 0
 
-    await add_user(message.from_user.id, invite_by)
+    await add_user(m.from_user.id, inviter)
 
-    user = await get_user(message.from_user.id)
+    # 👥 پاداش دعوت واقعی
+    if inviter != 0:
+        await reward_invite(inviter)
+
+    user = await get_user(m.from_user.id)
 
     if user[3] == 0:
-        await message.answer("📜 قوانین را قبول کن", reply_markup=rules())
+        await m.answer("📜 قوانین را قبول کن", reply_markup=rules())
     else:
-        await message.answer("🌍 انتخاب زبان", reply_markup=lang())
+        await m.answer("🌍 انتخاب زبان", reply_markup=lang())
 
 
-# قبول قوانین
+# قوانین
 @dp.callback_query(F.data == "accept")
-async def accept_rules(call: CallbackQuery):
-    await accept(call.from_user.id)
-    await call.message.answer("🌍 انتخاب زبان", reply_markup=lang())
+async def accept_rules(c: CallbackQuery):
+    await accept(c.from_user.id)
+    await c.message.answer("🌍 انتخاب زبان", reply_markup=lang())
+    await c.message.delete()
 
 
 # زبان
 @dp.callback_query(F.data.in_(["fa","en","ru","es","hi","tr","fr"]))
-async def set_language(call: CallbackQuery):
-    await set_lang(call.from_user.id, call.data)
-    await call.message.answer("✨ خوش آمدی", reply_markup=menu())
-
-
-# ساخت عکس
-@dp.callback_query(F.data == "img")
-async def img(call: CallbackQuery):
-    path = make_image("سلام 👋")
-    await call.message.answer_photo(FSInputFile(path))
-
-
-# ادیت عکس
-@dp.callback_query(F.data == "edit")
-async def edit(call: CallbackQuery):
-    await call.message.answer("📸 عکس بفرست")
-
-
-@dp.message(F.photo)
-async def photo(message: Message):
-    file = await message.bot.get_file(message.photo[-1].file_id)
-    await message.bot.download_file(file.file_path, "in.jpg")
-
-    out = edit_image("in.jpg")
-    await message.answer_photo(FSInputFile(out))
+async def set_lang(c: CallbackQuery):
+    await set_lang(c.from_user.id, c.data)
+    await c.message.delete()
+    await c.message.answer(TEXT[c.data], reply_markup=menu())
 
 
 # سکه
 @dp.callback_query(F.data == "coins")
-async def coins(call: CallbackQuery):
-    user = await get_user(call.from_user.id)
-    await call.message.answer(f"💰 {user[1]}")
+async def coins(c: CallbackQuery):
+    user = await get_user(c.from_user.id)
+    await c.message.answer(f"💰 {user[1]}")
 
 
-# روزانه
-@dp.callback_query(F.data == "daily")
-async def daily(call: CallbackQuery):
-    await add_coins(call.from_user.id, 100)
-    await call.message.answer("🎁 +100 سکه")
-
-
-# دعوت دوستان (200 سکه آماده توسعه)
+# دعوت لینک
 @dp.callback_query(F.data == "invite")
-async def invite(call: CallbackQuery):
-    await add_coins(call.from_user.id, 200)
-    await call.message.answer("👥 +200 سکه (دعوت فعال شد)")
+async def invite(c: CallbackQuery):
+    link = f"https://t.me/{(await bot.get_me()).username}?start={c.from_user.id}"
+    await c.message.answer(f"👥 لینک دعوت شما:\n{link}\n\n💰 +200 سکه برای هر دعوت!")
 
 
+# ادیت عکس
+@dp.message(F.photo)
+async def photo(m: Message):
+    file = await m.bot.get_file(m.photo[-1].file_id)
+    await m.bot.download_file(file.file_path, "in.jpg")
+
+    out = edit_image("in.jpg")
+    await m.answer_photo(FSInputFile(out))
+
+
+# استیکر
+@dp.message(F.photo)
+async def sticker(m: Message):
+    file = await m.bot.get_file(m.photo[-1].file_id)
+    await m.bot.download_file(file.file_path, "in2.jpg")
+
+    out = make_sticker("in2.jpg")
+    await m.answer_sticker(FSInputFile(out))
+
+
+# RUN
 async def main():
-    await init_db()
+    await init()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
