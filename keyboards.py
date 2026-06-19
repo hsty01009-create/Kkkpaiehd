@@ -2,7 +2,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def rules():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ قبول", callback_data="accept")]
+        [InlineKeyboardButton(text="✅ قبول قوانین", callback_data="accept")]
     ])
 
 def lang():
