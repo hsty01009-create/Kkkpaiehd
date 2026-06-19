@@ -1,35 +1,39 @@
-import aiosqlite
+import sqlite3
 
-DB = "bot.db"
+conn = sqlite3.connect("bot.db", check_same_thread=False)
+cursor = conn.cursor()
 
-async def init():
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS users(
-            user_id INTEGER PRIMARY KEY,
-            coins INTEGER DEFAULT 100,
-            lang TEXT DEFAULT 'fa',
-            invited_by INTEGER DEFAULT 0
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    coins INTEGER DEFAULT 100,
+    lang TEXT DEFAULT 'fa',
+    invited_by INTEGER
+)
+""")
+
+conn.commit()
+
+def get_user(user_id):
+    cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    return cursor.fetchone()
+
+def add_user(user_id, invited_by=None):
+    if not get_user(user_id):
+        cursor.execute(
+            "INSERT INTO users (user_id, invited_by) VALUES (?,?)",
+            (user_id, invited_by)
         )
-        """)
-        await db.commit()
+        conn.commit()
 
-async def add_user(uid):
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (uid,))
-        await db.commit()
+def update_lang(user_id, lang):
+    cursor.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
+    conn.commit()
 
-async def get_user(uid):
-    async with aiosqlite.connect(DB) as db:
-        cur = await db.execute("SELECT * FROM users WHERE user_id=?", (uid,))
-        return await cur.fetchone()
+def add_coins(user_id, amount):
+    cursor.execute("UPDATE users SET coins = coins + ? WHERE user_id=?", (amount, user_id))
+    conn.commit()
 
-async def update_lang(uid, lang):
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, uid))
-        await db.commit()
-
-async def add_coins(uid, amount):
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("UPDATE users SET coins = coins + ? WHERE user_id=?", (amount, uid))
-        await db.commit()
+def get_coins(user_id):
+    cursor.execute("SELECT coins FROM users WHERE user_id=?", (user_id,))
+    return cursor.fetchone()[0]
