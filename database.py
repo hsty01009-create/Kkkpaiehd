@@ -1,34 +1,55 @@
 import aiosqlite
+import datetime
 
-DB_NAME = "users.db"
+DB = "bot.db"
 
 async def init_db():
-async with aiosqlite.connect(DB_NAME) as db:
-await db.execute("""
-CREATE TABLE IF NOT EXISTS users(
-user_id INTEGER PRIMARY KEY,
-username TEXT,
-first_name TEXT,
-language TEXT DEFAULT 'fa',
-credits INTEGER DEFAULT 10,
-accepted_rules INTEGER DEFAULT 0,
-inviter INTEGER DEFAULT 0
-)
-""")
-await db.commit()
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+            user_id INTEGER PRIMARY KEY,
+            coins INTEGER DEFAULT 100,
+            lang TEXT DEFAULT 'fa',
+            accepted INTEGER DEFAULT 0,
+            ref_by INTEGER DEFAULT 0,
+            last_daily TEXT DEFAULT ''
+        )
+        """)
+        await db.commit()
 
-async def add_user(user_id, username, first_name):
-async with aiosqlite.connect(DB_NAME) as db:
-await db.execute(
-"INSERT OR IGNORE INTO users(user_id,username,first_name) VALUES(?,?,?)",
-(user_id, username, first_name)
-)
-await db.commit()
+
+async def add_user(user_id, ref_by=0):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("INSERT OR IGNORE INTO users(user_id, ref_by) VALUES(?,?)", (user_id, ref_by))
+        await db.commit()
+
 
 async def get_user(user_id):
-async with aiosqlite.connect(DB_NAME) as db:
-cur = await db.execute(
-"SELECT * FROM users WHERE user_id=?",
-(user_id,)
-)
-return await cur.fetchone()
+    async with aiosqlite.connect(DB) as db:
+        cur = await db.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+        return await cur.fetchone()
+
+
+async def set_lang(user_id, lang):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
+        await db.commit()
+
+
+async def accept_rules(user_id):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("UPDATE users SET accepted=1 WHERE user_id=?", (user_id,))
+        await db.commit()
+
+
+async def add_coins(user_id, amount):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("UPDATE users SET coins = coins + ? WHERE user_id=?", (amount, user_id))
+        await db.commit()
+
+
+async def set_daily(user_id):
+    today = str(datetime.date.today())
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("UPDATE users SET last_daily=? WHERE user_id=?", (today, user_id))
+        await db.commit()
