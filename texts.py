@@ -1,13 +1,13 @@
 TEXTS = {
     "fa": {
-        "welcome": "👋 خوش آمدید!",
-        "send_prompt": "🖼 پرامپت را ارسال کنید",
+        "welcome": "👋 خوش آمدید",
+        "send_prompt": "🖼 متن عکس را ارسال کنید",
         "send_photo": "📸 عکس ارسال کنید",
-        "rules": "📜 قوانین:\n1. احترام\n2. اسپم ممنوع\n3. سوءاستفاده = بن\n4. تبلیغ ممنوع\n5. استفاده درست الزامی"
+        "rules": "📜 قوانین کامل:\n1. احترام\n2. اسپم ممنوع\n3. تبلیغ ممنوع\n4. سوءاستفاده = بن\n5. رعایت الزامی است"
     },
     "en": {
-        "welcome": "👋 Welcome!",
-        "send_prompt": "Send prompt",
+        "welcome": "👋 Welcome",
+        "send_prompt": "Send image prompt",
         "send_photo": "Send photo",
         "rules": "Rules:\n1. Respect\n2. No spam\n3. No abuse"
     },
