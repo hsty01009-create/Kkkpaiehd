@@ -1,14 +1,27 @@
-from PIL import Image, ImageEnhance, ImageDraw
+import requests
+from urllib.parse import quote
 
-def edit_image(path, text="PRO AI"):
-    img = Image.open(path)
 
-    img = ImageEnhance.Contrast(img).enhance(1.5)
-    img = ImageEnhance.Brightness(img).enhance(1.2)
+def generate_image_url(prompt):
+    """
+    ساخت لینک عکس از متن
+    """
+    prompt = quote(prompt)
+    return f"https://image.pollinations.ai/prompt/{prompt}"
 
-    draw = ImageDraw.Draw(img)
-    draw.text((40, 40), text, fill="white")
 
-    out = path.replace(".jpg", "_edit.jpg")
-    img.save(out)
-    return out
+def check_image(prompt):
+    """
+    تست وجود عکس
+    """
+    try:
+        url = generate_image_url(prompt)
+        r = requests.get(url, timeout=20)
+
+        if r.status_code == 200:
+            return url
+
+        return None
+
+    except Exception:
+        return None
