@@ -18,8 +18,7 @@ def lang():
 
 def menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🖼 عکس", callback_data="img")],
-        [InlineKeyboardButton(text="✏️ ادیت", callback_data="edit")],
+        [InlineKeyboardButton(text="🖼 ادیت عکس", callback_data="edit")],
         [InlineKeyboardButton(text="🧊 استیکر", callback_data="sticker")],
         [InlineKeyboardButton(text="💰 سکه", callback_data="coins")],
         [InlineKeyboardButton(text="👥 دعوت", callback_data="invite")]
